@@ -8,7 +8,7 @@
     "withGlobalTauri": true
   },
   "package": {
-    "productName": "ChatGPT Next Web",
+    "productName": "AI Chat Bot",
     "version": "2.9.11"
   },
   "tauri": {
