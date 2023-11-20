@@ -66,12 +66,20 @@ export class ChatGPTApi implements LLMApi {
     return res.choices?.at(0)?.message?.content ?? "";
   }
 
-  async chat(options: ChatOptions) {
-    const messages = options.messages.map((v) => ({
-      role: v.role,
-      content: v.content,
-    }));
+  generateImageRequest(options: ChatOptions) {
+    return {
+      type: "image",
+      reqUrl: this.path(OpenaiPath.ImageCreationPath),
+      requestPayload: {
+        model: options.config.model,
+        prompt: options.messages[options.messages.length - 1].content,
+        n: 1,
+        size: "1024x1024",
+      },
+    };
+  }
 
+  generateChatRequest(options: ChatOptions) {
     const modelConfig = {
       ...useAppConfig.getState().modelConfig,
       ...useChatStore.getState().currentSession().mask.modelConfig,
@@ -79,18 +87,49 @@ export class ChatGPTApi implements LLMApi {
         model: options.config.model,
       },
     };
+    const messages = options.messages.map((v) => ({
+      role: v.role,
+      content: v.content,
+    }));
 
-    const requestPayload = {
-      messages,
-      stream: options.config.stream,
-      model: modelConfig.model,
-      temperature: modelConfig.temperature,
-      presence_penalty: modelConfig.presence_penalty,
-      frequency_penalty: modelConfig.frequency_penalty,
-      top_p: modelConfig.top_p,
-      // max_tokens: Math.max(modelConfig.max_tokens, 1024),
-      // Please do not ask me why not send max_tokens, no reason, this param is just shit, I dont want to explain anymore.
+    return {
+      type: "chat",
+      reqUrl: this.path(OpenaiPath.ChatPath),
+      requestPayload: {
+        messages: messages,
+        stream: options.config.stream,
+        model: options.config.model,
+        temperature: modelConfig.temperature,
+        presence_penalty: modelConfig.presence_penalty,
+        frequency_penalty: modelConfig.frequency_penalty,
+        top_p: modelConfig.top_p,
+        max_tokens: Math.max(modelConfig.max_tokens, 1024),
+      },
     };
+  }
+
+  genereateRequest(model: string, options: ChatOptions) {
+    const handles = {
+      "dall-e-3": this.generateImageRequest,
+      "dall-e-2": this.generateImageRequest,
+      chat: this.generateChatRequest,
+    } as Record<
+      string,
+      (options: ChatOptions) => {
+        requestPayload: any;
+        reqUrl: string;
+        type: "chat" | "image";
+      }
+    >;
+    const currModel = handles[model] ? model : "chat";
+    return handles[currModel].call(this, options);
+  }
+
+  async chat(options: ChatOptions) {
+    const { requestPayload, reqUrl, type } = this.genereateRequest(
+      options.config.model,
+      options,
+    );
 
     console.log("[Request] openai payload: ", requestPayload);
 
@@ -99,7 +138,7 @@ export class ChatGPTApi implements LLMApi {
     options.onController?.(controller);
 
     try {
-      const chatPath = this.path(OpenaiPath.ChatPath);
+      const chatPath = reqUrl;
       const chatPayload = {
         method: "POST",
         body: JSON.stringify(requestPayload),
@@ -171,22 +210,30 @@ export class ChatGPTApi implements LLMApi {
                 ?.startsWith(EventStreamContentType) ||
               res.status !== 200
             ) {
-              const responseTexts = [responseText];
-              let extraInfo = await res.clone().text();
-              try {
+              if (type === "chat") {
+                const responseTexts = [responseText];
+                let extraInfo = await res.clone().text();
+                try {
+                  const resJson = await res.clone().json();
+                  extraInfo = prettyObject(resJson);
+                } catch {}
+
+                if (res.status === 401) {
+                  responseTexts.push(Locale.Error.Unauthorized);
+                }
+
+                if (extraInfo) {
+                  responseTexts.push(extraInfo);
+                }
+
+                responseText = responseTexts.join("\n\n");
+              } else if (type === "image") {
                 const resJson = await res.clone().json();
-                extraInfo = prettyObject(resJson);
-              } catch {}
 
-              if (res.status === 401) {
-                responseTexts.push(Locale.Error.Unauthorized);
+                remainText =
+                  resJson.data[0].revised_prompt +
+                  `\n\n![OpenAI](${resJson.data[0].url})`;
               }
-
-              if (extraInfo) {
-                responseTexts.push(extraInfo);
-              }
-
-              responseText = responseTexts.join("\n\n");
 
               return finish();
             }
@@ -204,6 +251,7 @@ export class ChatGPTApi implements LLMApi {
                   };
                 }>;
               };
+
               const delta = json.choices[0]?.delta?.content;
               if (delta) {
                 remainText += delta;

@@ -104,14 +104,14 @@ export const DEFAULT_MODELS = [
   /**
    * DALL·E Model
    **/
-    {
-      name: "dall-e-2",
-      available: false, // reason : WIP
-    },
-    {
-      name: "dall-e-3",
-      available: false, // reason : WIP
-    },
+  {
+    name: "dall-e-2",
+    available: false, // reason : WIP
+  },
+  {
+    name: "dall-e-3",
+    available: true, // reason : WIP
+  },
   {
     name: "gpt-4",
     available: true,
