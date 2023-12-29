@@ -9,7 +9,7 @@
   },
   "package": {
     "productName": "AI Chat Bot",
-    "version": "2.9.13"
+    "version": "2.10.1"
   },
   "tauri": {
     "allowlist": {
